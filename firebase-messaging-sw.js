@@ -2,7 +2,7 @@ importScripts('https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js'
 importScripts('https://www.gstatic.com/firebasejs/10.8.1/firebase-messaging-compat.js');
 
 firebase.initializeApp({
-     apiKey: "AIzaSyCQe2H3YBOve8rJtGakTItqeYFIIAXxieM",
+  apiKey: "AIzaSyCQe2H3YBOve8rJtGakTItqeYFIIAXxieM",
   authDomain: "unication-9af0d.firebaseapp.com",
   projectId: "unication-9af0d",
   storageBucket: "unication-9af0d.firebasestorage.app",
@@ -11,11 +11,12 @@ firebase.initializeApp({
 });
 
 const messaging = firebase.messaging();
+
 messaging.onBackgroundMessage((payload) => {
-    const { title, body } = payload.notification || {};
-    if (!title) return;
-    self.registration.showNotification(title, {
-        body: body || '',
-        icon: './icon-192.png'
-    });
+  const { title, body } = payload.notification || {};
+  if (!title) return;
+  self.registration.showNotification(title, {
+    body: body || '',
+    icon: './icon-192.png'
+  });
 });
