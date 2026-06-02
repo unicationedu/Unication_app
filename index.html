@@ -1420,9 +1420,9 @@
                     for (const change of snap.docChanges()) {
                         if (change.type === 'added') {
                             const n = change.doc.data();
-                            if (Notification.permission === 'granted') {
-                                new Notification(n.title, { body: n.body, icon: '/icon-192.png', tag: change.doc.id });
-                            } else { showInAppNotification(n.title, n.body); }
+                           if (document.visibilityState === 'visible') {
+   　　　　　　　　　　　　　　　 showInAppNotification(n.title, n.body);
+　　　　　　　　　　　　　　　}
                             await updateDoc(doc(db, "notifications", change.doc.id), { read: true });
                         }
                     }
