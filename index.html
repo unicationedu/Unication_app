@@ -8,7 +8,7 @@
     <link rel="apple-touch-icon" href="./apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png">
-    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Unication">
     <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;600;700&display=swap" rel="stylesheet">
@@ -806,20 +806,21 @@
         import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-messaging.js";
 
         const firebaseConfig = {
-  apiKey: "AIzaSyCQe2H3YBOve8rJtGakTItqeYFIIAXxieM",
-  authDomain: "unication-9af0d.firebaseapp.com",
-  projectId: "unication-9af0d",
-  storageBucket: "unication-9af0d.firebasestorage.app",
-  messagingSenderId: "365505602833",
-  appId: "1:365505602833:web:3cec281f3d33967b2198b0"
-};
+            apiKey: "AIzaSyDCQ58RF4tlckyDawzDzwZpNijUYBKa34E",
+            authDomain: "unication-53c53.firebaseapp.com",
+            projectId: "unication-53c53",
+            storageBucket: "unication-53c53.firebasestorage.app",
+            messagingSenderId: "605441761631",
+            appId: "1:605441761631:web:5c660b55140569b15bd6ea",
+            measurementId: "G-6RRL6RWBF5"
+        };
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
         const storage = getStorage(app);
         const messaging = getMessaging(app);
 
-        const VAPID_KEY = "BO-vnTJp-o4Cw3ejHCHBroO1oSjyOjNPINy9MuHGYMk7d5DkZQ_O8iEo6CKGpV-NXAglb62wWylJlM2_d1OBYKM";
+        const VAPID_KEY = "BPQ6xRWpCGIQqJuNI-ndXe7darr0L4xrdiLbQqMIArlpmcYNh0SzJl3ihicyFgj06AO6dTwFxlSoFKADk9mZG7I";
 
         // ★ グローバルリンク設定（Firestoreから読み込む）
         let linkSettings = {};
@@ -1367,19 +1368,22 @@
 
         async function registerFcmToken() {
             try {
-                const reg = await navigator.serviceWorker.register(
-    '/Unication_app/firebase-messaging-sw.js',
-    { scope: '/Unication_app/' }
-);
-                await navigator.serviceWorker.ready;
+                const reg = await navigator.serviceWorker.register('./firebase-messaging-sw.js');
                 const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: reg });
                 if (token && currentUser) {
                     const existingTokens = myUserData.fcmTokens || [];
 
-                   if (existingTokens.includes(token)) return;
-                    // 常に最新1件だけ保持（重複通知防止）
-                    await updateDoc(doc(db, "users", currentUser.uid), { fcmTokens: [token] });
-                    myUserData.fcmTokens = [token];
+                    // ★ 既に同じトークンがあればスキップ
+                    if (existingTokens.includes(token)) return;
+
+                    // ★ 新しいトークンを追加（最大5件まで保持、超えたら古いものを削除）
+                    const newTokens = [...existingTokens, token];
+                    const finalTokens = newTokens.length > 5
+                        ? newTokens.slice(newTokens.length - 5)
+                        : newTokens;
+
+                    await updateDoc(doc(db, "users", currentUser.uid), { fcmTokens: finalTokens });
+                    myUserData.fcmTokens = finalTokens;
                 }
             } catch (e) { console.warn("FCMトークン取得失敗:", e); }
         }
@@ -1414,9 +1418,9 @@
                     for (const change of snap.docChanges()) {
                         if (change.type === 'added') {
                             const n = change.doc.data();
-                           if (document.visibilityState === 'visible') {
-   　　　　　　　　　　　　　　　 showInAppNotification(n.title, n.body);
-　　　　　　　　　　　　　　　}
+                            if (Notification.permission === 'granted') {
+                                new Notification(n.title, { body: n.body, icon: '/icon-192.png', tag: change.doc.id });
+                            } else { showInAppNotification(n.title, n.body); }
                             await updateDoc(doc(db, "notifications", change.doc.id), { read: true });
                         }
                     }
@@ -1579,6 +1583,11 @@
                         document.getElementById('app-page').style.display = 'flex';
                         document.getElementById('user-display').innerText = myUserData.name;
                         document.getElementById('point-display').innerText = myUserData.totalPoints || 0;
+                        // 学習者にはポイントバッジを非表示
+                        const pointBadge = document.querySelector('.point-badge');
+                        if (pointBadge) {
+                            pointBadge.style.display = myUserData.role === 'learner' ? 'none' : 'flex';
+                        }
                         document.getElementById('btn-menu-open').style.display = 'block';
                         if (myUserData.role === 'admin') { loadAutoMessageMaster(); loadRetentionSetting(); purgeExpiredMessages(); }
                         if (myUserData.role === 'learner') {
@@ -1877,16 +1886,19 @@
 
         async function updateUnrepliedStatus() {
             const myRef = doc(db, "users", currentUser.uid);
-            const targetRef = doc(db, "users", activeChatUserId);
+            const targetRef = doc(db, "users", activeRoomId);
             const targetSnap = await getDoc(targetRef);
             const targetData = targetSnap.exists() ? targetSnap.data() : null;
             if (myUserData.role === 'learner') {
+                // 学習者が送信 → 相手（管理者・講師）の isUnreplied を true に
                 await updateDoc(myRef, { isUnreplied: true, totalPoints: increment(1) });
             } else if (myUserData.role === 'admin') {
                 if (targetData && targetData.role === 'learner') {
+                    // 管理者→学習者：学習者の isUnreplied を false（返信済み）にする
                     await updateDoc(myRef, { totalPoints: increment(1) });
                     await updateDoc(targetRef, { isUnreplied: false });
                 } else if (targetData && targetData.role === 'mentor') {
+                    // 管理者→講師：講師の isUnreplied を true に
                     await updateDoc(targetRef, { isUnreplied: true, adminSentLast: true, receivedAdminMsg: true });
                 } else if (targetData && targetData.role === 'admin') {
                     const targetUnreadFrom = targetData.adminUnreadFrom || [];
@@ -1895,13 +1907,18 @@
                     await updateDoc(myRef, { adminUnreadFrom: myUnreadFrom });
                 }
             } else if (myUserData.role === 'mentor') {
-                if (activeRoomId === currentUser.uid) { await updateDoc(myRef, { isUnreplied: true, adminSentLast: false }); }
-                else { await updateDoc(myRef, { totalPoints: increment(1) }); await updateDoc(targetRef, { isUnreplied: false }); }
+                if (activeRoomId === currentUser.uid) {
+                    // 講師が自分のチャット（管理者との）に送信
+                    await updateDoc(myRef, { isUnreplied: true, adminSentLast: false });
+                } else {
+                    // 講師→学習者：学習者の isUnreplied を false（返信済み）にする
+                    await updateDoc(myRef, { totalPoints: increment(1) });
+                    await updateDoc(targetRef, { isUnreplied: false });
+                }
             }
         }
 
         document.getElementById('btn-send').addEventListener('click', async () => {
-            document.getElementById('msg-input').blur();
             const text = document.getElementById('msg-input').value.replace(/\n+$/, ''); if (!text.trim()) return;
             // ★ 学習者の月間メッセージ上限チェック
             if (myUserData.role === 'learner') {
@@ -1997,19 +2014,10 @@
             document.getElementById('input-area').style.display = 'flex';
             document.getElementById('chat-header-text').innerText = tname;
             // ★ スマホ：チャットエリアを表示してサイドバーを隠す
-            if (window.innerWidth <= 680 && !document.getElementById('app-page').classList.contains('learner-mode')) {
-    document.getElementById('chat-area').classList.add('mobile-active');
-}
-            if (myUserData.role === 'admin' && trole === 'admin') {
-                // 管理者同士は2つのUIDをソートして共有ルームIDを生成
-                activeRoomId = [currentUser.uid, tid].sort().join('_');
-            } else if (myUserData.role === 'admin') {
-                activeRoomId = tid;
-            } else if (myUserData.role === 'mentor' && trole === 'learner') {
-                activeRoomId = tid;
-            } else {
-                activeRoomId = currentUser.uid;
+            if (window.innerWidth <= 680) {
+                document.getElementById('chat-area').classList.add('mobile-active');
             }
+            activeRoomId = (myUserData.role === 'admin') ? tid : (myUserData.role === 'mentor' && trole === 'learner' ? tid : currentUser.uid);
             if (myUserData.role === 'admin' && trole === 'admin') {
                 const myUnreadFrom = (myUserData.adminUnreadFrom || []).filter(id => id !== tid);
                 await updateDoc(doc(db, 'users', currentUser.uid), { adminUnreadFrom: myUnreadFrom });
