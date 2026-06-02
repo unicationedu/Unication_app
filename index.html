@@ -8,7 +8,7 @@
     <link rel="apple-touch-icon" href="./apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png">
-    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Unication">
     <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;600;700&display=swap" rel="stylesheet">
@@ -1371,21 +1371,15 @@
     '/Unication_app/firebase-messaging-sw.js',
     { scope: '/Unication_app/' }
 );
+                await navigator.serviceWorker.ready;
                 const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: reg });
                 if (token && currentUser) {
                     const existingTokens = myUserData.fcmTokens || [];
 
-                    // ★ 既に同じトークンがあればスキップ
-                    if (existingTokens.includes(token)) return;
-
-                    // ★ 新しいトークンを追加（最大5件まで保持、超えたら古いものを削除）
-                    const newTokens = [...existingTokens, token];
-                    const finalTokens = newTokens.length > 5
-                        ? newTokens.slice(newTokens.length - 5)
-                        : newTokens;
-
-                    await updateDoc(doc(db, "users", currentUser.uid), { fcmTokens: finalTokens });
-                    myUserData.fcmTokens = finalTokens;
+                   if (existingTokens.includes(token)) return;
+                    // 常に最新1件だけ保持（重複通知防止）
+                    await updateDoc(doc(db, "users", currentUser.uid), { fcmTokens: [token] });
+                    myUserData.fcmTokens = [token];
                 }
             } catch (e) { console.warn("FCMトークン取得失敗:", e); }
         }
@@ -1883,7 +1877,7 @@
 
         async function updateUnrepliedStatus() {
             const myRef = doc(db, "users", currentUser.uid);
-            const targetRef = doc(db, "users", activeRoomId);
+            const targetRef = doc(db, "users", activeChatUserId);
             const targetSnap = await getDoc(targetRef);
             const targetData = targetSnap.exists() ? targetSnap.data() : null;
             if (myUserData.role === 'learner') {
@@ -2005,7 +1999,16 @@
             if (window.innerWidth <= 680) {
                 document.getElementById('chat-area').classList.add('mobile-active');
             }
-            activeRoomId = (myUserData.role === 'admin') ? tid : (myUserData.role === 'mentor' && trole === 'learner' ? tid : currentUser.uid);
+            if (myUserData.role === 'admin' && trole === 'admin') {
+                // 管理者同士は2つのUIDをソートして共有ルームIDを生成
+                activeRoomId = [currentUser.uid, tid].sort().join('_');
+            } else if (myUserData.role === 'admin') {
+                activeRoomId = tid;
+            } else if (myUserData.role === 'mentor' && trole === 'learner') {
+                activeRoomId = tid;
+            } else {
+                activeRoomId = currentUser.uid;
+            }
             if (myUserData.role === 'admin' && trole === 'admin') {
                 const myUnreadFrom = (myUserData.adminUnreadFrom || []).filter(id => id !== tid);
                 await updateDoc(doc(db, 'users', currentUser.uid), { adminUnreadFrom: myUnreadFrom });
