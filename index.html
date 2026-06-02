@@ -1996,9 +1996,9 @@
             document.getElementById('input-area').style.display = 'flex';
             document.getElementById('chat-header-text').innerText = tname;
             // ★ スマホ：チャットエリアを表示してサイドバーを隠す
-            if (window.innerWidth <= 680) {
-                document.getElementById('chat-area').classList.add('mobile-active');
-            }
+            if (window.innerWidth <= 680 && !document.getElementById('app-page').classList.contains('learner-mode')) {
+    document.getElementById('chat-area').classList.add('mobile-active');
+}
             if (myUserData.role === 'admin' && trole === 'admin') {
                 // 管理者同士は2つのUIDをソートして共有ルームIDを生成
                 activeRoomId = [currentUser.uid, tid].sort().join('_');
