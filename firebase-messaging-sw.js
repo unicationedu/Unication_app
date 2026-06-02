@@ -8,7 +8,7 @@ firebase.initializeApp({
   storageBucket: "unication-9af0d.firebasestorage.app",
   messagingSenderId: "365505602833",
   appId: "1:365505602833:web:3cec281f3d33967b2198b0"
-};
+});
 
 const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
@@ -16,6 +16,6 @@ messaging.onBackgroundMessage((payload) => {
     if (!title) return;
     self.registration.showNotification(title, {
         body: body || '',
-        icon: '/icon-192.png'
+        icon: './icon-192.png'
     });
 });
