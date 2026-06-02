@@ -1367,7 +1367,10 @@
 
         async function registerFcmToken() {
             try {
-                const reg = await navigator.serviceWorker.register('./firebase-messaging-sw.js');
+                const reg = await navigator.serviceWorker.register(
+    '/Unication app/firebase-messaging-sw.js',
+    { scope: '/Unication app/' }
+);
                 const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: reg });
                 if (token && currentUser) {
                     const existingTokens = myUserData.fcmTokens || [];
