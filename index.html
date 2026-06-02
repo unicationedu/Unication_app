@@ -807,11 +807,11 @@
 
         const firebaseConfig = {
             apiKey: "AIzaSyCQe2H3YBOve8rJtGakTItqeYFIIAXxieM",
-            authDomain: "unication-9af0d.firebaseapp.com",
-            projectId: "unication-9af0d",
-            storageBucket: "unication-9af0d.firebasestorage.app",
-            messagingSenderId: "365505602833",
-            appId: "1:365505602833:web:3cec281f3d33967b2198b0"
+  authDomain: "unication-9af0d.firebaseapp.com",
+  projectId: "unication-9af0d",
+  storageBucket: "unication-9af0d.firebasestorage.app",
+  messagingSenderId: "365505602833",
+  appId: "1:365505602833:web:3cec281f3d33967b2198b0"
         };
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
@@ -1889,9 +1889,9 @@
             const targetSnap = await getDoc(targetRef);
             const targetData = targetSnap.exists() ? targetSnap.data() : null;
             if (myUserData.role === 'learner') {
-                // 学習者が送信 → 自分のポイント加算 + 相手（管理者・講師）の isUnreplied を true に
-                await updateDoc(myRef, { totalPoints: increment(1) });
-                await updateDoc(targetRef, { isUnreplied: true });
+                // 学習者が送信 → 自分のポイント加算 + 自分の isUnreplied を true に
+                // （管理者・講師は学習者ドキュメントの isUnreplied を参照してバッジ表示）
+                await updateDoc(myRef, { isUnreplied: true, totalPoints: increment(1) });
             } else if (myUserData.role === 'admin') {
                 if (targetData && targetData.role === 'learner') {
                     // 管理者→学習者：学習者の isUnreplied を false（返信済み）にする
