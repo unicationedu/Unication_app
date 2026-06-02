@@ -12,11 +12,5 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-messaging.onBackgroundMessage((payload) => {
-  const { title, body } = payload.notification || {};
-  if (!title) return;
-  self.registration.showNotification(title, {
-    body: body || '',
-    icon: './icon-192.png'
-  });
-});
+// onBackgroundMessage は削除
+// Cloud Functions (sendPushNotification) が通知を送るため、ここでは不要
