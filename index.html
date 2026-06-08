@@ -579,7 +579,7 @@
                 </div>
                 <div class="link-edit-row">
                     <div class="link-edit-row-top">
-                        <div class="link-edit-label">🙋 イベント講師申し込み</div>
+                        <div class="link-edit-label">🙋 イベント参加・オンライン指導</div>
                         <input type="url" class="link-edit-input" id="link-event-mentor" placeholder="https://...">
                         <button class="link-edit-save" onclick="saveLink('eventMentor', 'link-event-mentor')">保存</button>
                     </div>
@@ -608,7 +608,7 @@
             <div style="background:#f9f9f9; border:1px solid #eee; border-radius:8px; padding:15px; margin-bottom:15px;">
                 <div class="link-edit-row">
                     <div class="link-edit-row-top">
-                        <div class="link-edit-label">🎉 イベント申込</div>
+                        <div class="link-edit-label">🎉 イベント申込・オンライン学習予約</div>
                         <input type="url" class="link-edit-input" id="link-event-learner" placeholder="https://...">
                         <button class="link-edit-save" onclick="saveLink('eventLearner', 'link-event-learner')">保存</button>
                     </div>
@@ -1532,7 +1532,7 @@
                 html += `<div class="menu-item" onclick="window.open('${certUrl}','_blank')"><span class="menu-item-icon">📜</span><strong>${certLabel}</strong></div>`;
 
                 const eventMentorUrl = linkSettings.eventMentor || 'https://forms.gle/SNdzhaujUuSEFWoH8';
-                const eventMentorLabel = currentLang === 'en' ? '🙋 Event Mentor Sign-up' : '🙋 イベント講師申し込み';
+                const eventMentorLabel = currentLang === 'en' ? '🙋 Event/Online tutoring' : '🙋 イベント参加・オンライン指導';
                 html += `<div class="menu-item" onclick="window.open('${eventMentorUrl}','_blank')"><span class="menu-item-icon">🙋</span><strong>${eventMentorLabel}</strong></div>`;
 
                 const workUrl = linkSettings.workApply || 'https://forms.gle/tGgmxmgEqFxr6t8n8';
@@ -1546,7 +1546,7 @@
 
             if (myUserData.role === 'learner') {
                 const eventUrl = linkSettings.eventLearner || 'https://forms.gle/vDJUH3k765TmmJNWA';
-                const eventLabel = currentLang === 'en' ? '🎉 Event Sign-up' : '🎉 イベント申込';
+                const eventLabel = currentLang === 'en' ? '🎉 Event/Online learning' : '🎉 イベント申込・オンライン学習予約';
                 html += `<div class="menu-item" onclick="window.open('${eventUrl}','_blank')"><span class="menu-item-icon">🎉</span><strong>${eventLabel}</strong></div>`;
             }
 
