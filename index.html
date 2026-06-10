@@ -2006,6 +2006,19 @@
             };
         });
 
+// メッセージ本文を安全にHTML化し、URLをリンクに変換する
+function renderMessageContent(raw) {
+    let s = raw.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    s = s.replace(/(https?:\/\/[^\s<]+)/g, (m) => {
+        let url = m, trail = '';
+        const tm = url.match(/[)\]}.,!?、。）」』]+$/);
+        if (tm) { trail = tm[0]; url = url.slice(0, -trail.length); }
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:underline; word-break:break-all;">${url}</a>${trail}`;
+    });
+    s = s.replace(/\n/g, '<br>');
+    return s;
+}
+        
         async function selectChat(tid, tname, trole) {
             document.querySelectorAll('.user-item').forEach(el => el.classList.remove('active'));
             const newActive = document.getElementById(`sidebar-item-${tid}`);
@@ -2056,8 +2069,8 @@
                     }
                     const container = document.createElement('div'); container.className = `msg-container ${isMe ? 'sent' : 'received'}`;
                     const content = m.type === 'image'
-                        ? `<img src="${m.content}">`
-                        : m.content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+    　　　　　　　　　　　? `<img src="${m.content}">`
+  　　　　　　　　　　　  : renderMessageContent(m.content);
                     container.innerHTML = `<div style="font-size:10px; opacity:0.7; margin-bottom: 2px;">${m.senderName}</div><div style="display: flex; align-items: flex-end; flex-direction: ${isMe ? 'row' : 'row-reverse'};"><div class="msg-time">${t}</div><div class="msg">${content}</div></div>`;
                     list.appendChild(container);
                 });
