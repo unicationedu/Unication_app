@@ -2038,7 +2038,15 @@ function renderMessageContent(raw) {
             }
             // ★ 2者専用ルームを使用（管理者↔管理者・管理者↔講師の混線を解消）
             activeRoomId = getRoomId(tid, trole);
-            // 未返信バッジは「返信したとき」に消す仕様のため、開いただけでは消さない
+            // ★ 管理者↔管理者・管理者↔講師は、チャットを開いた時点で自分の未返信バッジを消す
+            if (trole !== 'learner') {
+                const myUnread = myUserData.unreadFrom || [];
+                if (myUnread.includes(tid)) {
+                    const newUnread = myUnread.filter(id => id !== tid);
+                    myUserData.unreadFrom = newUnread;
+                    await updateDoc(doc(db, 'users', currentUser.uid), { unreadFrom: newUnread });
+                }
+            }
             if (unsubscribeMsg) unsubscribeMsg();
             unsubscribeMsg = onSnapshot(query(collection(db, "chats", activeRoomId, "messages"), orderBy("createdAt", "asc")), (snap) => {
                 const list = document.getElementById('message-list'); list.innerHTML = '';
