@@ -1348,7 +1348,15 @@
         };
 
         let currentLang = localStorage.getItem('wiw_lang') || 'ja';
-        let currentUser = null, myUserData = null, activeChatUserId = null, activeRoomId = null, unsubscribeMsg = null, currentPatterns = [];
+        let currentUser = null, myUserData = null, activeChatUserId = null, activeChatUserRole = null, activeRoomId = null, unsubscribeMsg = null, currentPatterns = [];
+
+// ★ 2者専用のルームIDを作る。学習者が絡む会話は学習者UIDの単一ルーム（自動配信と互換）、
+//   管理者↔管理者・管理者↔講師は2者UIDから一意なペアルームを作る。
+function getRoomId(otherUid, otherRole) {
+    if (myUserData.role === 'learner') return currentUser.uid;
+    if (otherRole === 'learner') return otherUid;
+    return [currentUser.uid, otherUid].sort().join('__');
+}
         document.addEventListener('langChanged', (e) => { currentLang = e.detail; updateUI(); if(myUserData) setupMenuGrid(); });
 
         // 通知関連
@@ -1664,7 +1672,8 @@
                         pointBody.appendChild(ptr);
                     }
 
-                    let showSide = (myUserData.role === 'admin') || (myUserData.role === 'mentor' && u.role === 'learner') || (myUserData.role === 'mentor' && u.role === 'admin' && (u.isUnreplied || myUserData.receivedAdminMsg));
+                    let showSide = (myUserData.role === 'admin') ||
+                        (myUserData.role === 'mentor' && (u.role === 'learner' || u.role === 'admin'));
                     if (showSide) {
                         const isActive = activeChatUserId === uid;
                         const div = document.createElement('div');
@@ -1672,12 +1681,13 @@
                         div.id = `sidebar-item-${uid}`;
 
                         let isBadge = false;
-                        if (myUserData.role === 'admin') {
-                            if (u.role === 'learner' || u.role === 'mentor') { isBadge = u.isUnreplied === true; }
-                            else if (u.role === 'admin') { const myUnreadFrom = myUserData.adminUnreadFrom || []; isBadge = myUnreadFrom.includes(uid); }
-                        } else if (myUserData.role === 'mentor') {
-                            if (u.role === 'learner') { isBadge = u.isUnreplied === true; }
-                            else if (u.role === 'admin') { isBadge = myUserData.adminSentLast === true; }
+                        const myUnread = myUserData.unreadFrom || [];
+                        if (u.role === 'learner') {
+                            // 学習者は共有サポートスレッド：学習者の未返信フラグで判定
+                            isBadge = u.isUnreplied === true;
+                        } else {
+                            // 管理者・講師との1対1会話：自分の unreadFrom に相手が居れば未返信
+                            isBadge = myUnread.includes(uid);
                         }
 
                         const badge = isBadge ? `<span class="unread-badge">!</span>` : '';
@@ -1884,39 +1894,33 @@
         };
 
         async function updateUnrepliedStatus() {
-            const myRef = doc(db, "users", currentUser.uid);
-            const targetRef = doc(db, "users", activeRoomId);
-            const targetSnap = await getDoc(targetRef);
-            const targetData = targetSnap.exists() ? targetSnap.data() : null;
-            if (myUserData.role === 'learner') {
-                // 学習者が送信 → 自分のポイント加算 + 自分の isUnreplied を true に
-                // （管理者・講師は学習者ドキュメントの isUnreplied を参照してバッジ表示）
-                await updateDoc(myRef, { isUnreplied: true, totalPoints: increment(1) });
-            } else if (myUserData.role === 'admin') {
-                if (targetData && targetData.role === 'learner') {
-                    // 管理者→学習者：学習者の isUnreplied を false（返信済み）にする
-                    await updateDoc(myRef, { totalPoints: increment(1) });
-                    await updateDoc(targetRef, { isUnreplied: false });
-                } else if (targetData && targetData.role === 'mentor') {
-                    // 管理者→講師：講師の isUnreplied を true に
-                    await updateDoc(targetRef, { isUnreplied: true, adminSentLast: true, receivedAdminMsg: true });
-                } else if (targetData && targetData.role === 'admin') {
-                    const targetUnreadFrom = targetData.adminUnreadFrom || [];
-                    if (!targetUnreadFrom.includes(currentUser.uid)) { targetUnreadFrom.push(currentUser.uid); await updateDoc(targetRef, { adminUnreadFrom: targetUnreadFrom }); }
-                    const myUnreadFrom = (myUserData.adminUnreadFrom || []).filter(id => id !== activeChatUserId);
-                    await updateDoc(myRef, { adminUnreadFrom: myUnreadFrom });
-                }
-            } else if (myUserData.role === 'mentor') {
-                if (activeRoomId === currentUser.uid) {
-                    // 講師が自分のチャット（管理者との）に送信
-                    await updateDoc(myRef, { isUnreplied: true, adminSentLast: false });
-                } else {
-                    // 講師→学習者：学習者の isUnreplied を false（返信済み）にする
-                    await updateDoc(myRef, { totalPoints: increment(1) });
-                    await updateDoc(targetRef, { isUnreplied: false });
-                }
-            }
-        }
+    const myRef = doc(db, "users", currentUser.uid);
+    const targetUid = activeChatUserId;
+    const targetRole = activeChatUserRole;
+
+    // 学習者が送信：自分の未返信フラグON＋ポイント加算
+    if (myUserData.role === 'learner') {
+        await updateDoc(myRef, { isUnreplied: true, totalPoints: increment(1) });
+        return;
+    }
+    // 管理者・講師 → 学習者：学習者の未返信フラグOFF＋自分にポイント加算
+    if (targetRole === 'learner') {
+        await updateDoc(myRef, { totalPoints: increment(1) });
+        await updateDoc(doc(db, "users", targetUid), { isUnreplied: false });
+        return;
+    }
+    // 非学習者同士（管理者↔管理者 / 管理者↔講師）：
+    //   相手の unreadFrom に自分を追加し、自分の unreadFrom から相手を外す
+    const targetRef = doc(db, "users", targetUid);
+    const targetSnap = await getDoc(targetRef);
+    const targetUnread = (targetSnap.exists() && targetSnap.data().unreadFrom) || [];
+    if (!targetUnread.includes(currentUser.uid)) {
+        targetUnread.push(currentUser.uid);
+        await updateDoc(targetRef, { unreadFrom: targetUnread });
+    }
+    const myUnread = (myUserData.unreadFrom || []).filter(id => id !== targetUid);
+    await updateDoc(myRef, { unreadFrom: myUnread });
+}
 
         document.getElementById('btn-send').addEventListener('click', async () => {
             const text = document.getElementById('msg-input').value.replace(/\n+$/, ''); if (!text.trim()) return;
@@ -2023,18 +2027,18 @@ function renderMessageContent(raw) {
             document.querySelectorAll('.user-item').forEach(el => el.classList.remove('active'));
             const newActive = document.getElementById(`sidebar-item-${tid}`);
             if (newActive) newActive.classList.add('active');
-            activeChatUserId = tid; document.getElementById('message-list').style.display = 'flex';
+            activeChatUserId = tid;
+            activeChatUserRole = trole; // ★ 相手の役割を保持（バッジ判定で使用）
+            document.getElementById('message-list').style.display = 'flex';
             document.getElementById('input-area').style.display = 'flex';
             document.getElementById('chat-header-text').innerText = tname;
             // ★ スマホ：チャットエリアを表示してサイドバーを隠す
             if (window.innerWidth <= 680) {
                 document.getElementById('chat-area').classList.add('mobile-active');
             }
-            activeRoomId = (myUserData.role === 'admin') ? tid : (myUserData.role === 'mentor' && trole === 'learner' ? tid : currentUser.uid);
-            if (myUserData.role === 'admin' && trole === 'admin') {
-                const myUnreadFrom = (myUserData.adminUnreadFrom || []).filter(id => id !== tid);
-                await updateDoc(doc(db, 'users', currentUser.uid), { adminUnreadFrom: myUnreadFrom });
-            }
+            // ★ 2者専用ルームを使用（管理者↔管理者・管理者↔講師の混線を解消）
+            activeRoomId = getRoomId(tid, trole);
+            // 未返信バッジは「返信したとき」に消す仕様のため、開いただけでは消さない
             if (unsubscribeMsg) unsubscribeMsg();
             unsubscribeMsg = onSnapshot(query(collection(db, "chats", activeRoomId, "messages"), orderBy("createdAt", "asc")), (snap) => {
                 const list = document.getElementById('message-list'); list.innerHTML = '';
