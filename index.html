@@ -1353,9 +1353,11 @@
 // ★ 2者専用のルームIDを作る。学習者が絡む会話は学習者UIDの単一ルーム（自動配信と互換）、
 //   管理者↔管理者・管理者↔講師は2者UIDから一意なペアルームを作る。
 function getRoomId(otherUid, otherRole) {
-    if (myUserData.role === 'learner') return currentUser.uid;
-    if (otherRole === 'learner') return otherUid;
-    return [currentUser.uid, otherUid].sort().join('__');
+    if (myUserData.role === 'learner') return currentUser.uid;        // 学習者の共有スレッド
+    if (otherRole === 'learner') return otherUid;                     // 学習者宛
+    if (myUserData.role === 'mentor') return currentUser.uid;         // 講師→管理者：講師の共有スレッド
+    if (otherRole === 'mentor') return otherUid;                      // 管理者→講師：その講師の共有スレッド
+    return [currentUser.uid, otherUid].sort().join('__');             // 管理者↔管理者は1対1
 }
         document.addEventListener('langChanged', (e) => { currentLang = e.detail; updateUI(); if(myUserData) setupMenuGrid(); });
 
@@ -1673,7 +1675,7 @@ function getRoomId(otherUid, otherRole) {
                     }
 
                     let showSide = (myUserData.role === 'admin') ||
-                        (myUserData.role === 'mentor' && (u.role === 'learner' || u.role === 'admin'));
+                        (myUserData.role === 'mentor' && u.role === 'learner');
                     if (showSide) {
                         const isActive = activeChatUserId === uid;
                         const div = document.createElement('div');
@@ -1681,13 +1683,12 @@ function getRoomId(otherUid, otherRole) {
                         div.id = `sidebar-item-${uid}`;
 
                         let isBadge = false;
-                        const myUnread = myUserData.unreadFrom || [];
                         if (u.role === 'learner') {
-                            // 学習者は共有サポートスレッド：学習者の未返信フラグで判定
-                            isBadge = u.isUnreplied === true;
-                        } else {
-                            // 管理者・講師との1対1会話：自分の unreadFrom に相手が居れば未返信
-                            isBadge = myUnread.includes(uid);
+                            isBadge = u.isUnreplied === true;                        // 学習者共有スレッド
+                        } else if (u.role === 'mentor') {
+                            isBadge = u.isUnreplied === true;                        // 講師→管理者チーム（全管理者共有）
+                        } else if (u.role === 'admin') {
+                            isBadge = (myUserData.unreadFrom || []).includes(uid);   // 管理者↔管理者
                         }
 
                         const badge = isBadge ? `<span class="unread-badge">!</span>` : '';
@@ -1697,6 +1698,19 @@ function getRoomId(otherUid, otherRole) {
                         div.onclick = () => selectChat(uid, displayName, u.role); sidebarList.appendChild(div);
                     }
                 });
+
+                // ★ 講師のみ：管理者チーム宛の共有スレッドを「管理者（運営）」1項目として先頭に表示
+                if (myUserData.role === 'mentor') {
+                    const isActive = activeChatUserId === 'ADMIN_TEAM';
+                    const teamLabel = (localStorage.getItem('wiw_lang') === 'en') ? 'Administrators' : '管理者（運営）';
+                    const div = document.createElement('div');
+                    div.className = 'user-item' + (isActive ? ' active' : '');
+                    div.id = 'sidebar-item-ADMIN_TEAM';
+                    const badge = (myUserData.adminUnreplied === true) ? `<span class="unread-badge">!</span>` : '';
+                    div.innerHTML = `<strong>${teamLabel}</strong><br><small>admin</small>${badge}`;
+                    div.onclick = () => selectChat('ADMIN_TEAM', teamLabel, 'admin');
+                    sidebarList.insertBefore(div, sidebarList.firstChild);
+                }
             });
         }
 
@@ -1893,33 +1907,48 @@ function getRoomId(otherUid, otherRole) {
             alert("調整完了");
         };
 
-        async function updateUnrepliedStatus() {
+async function updateUnrepliedStatus() {
     const myRef = doc(db, "users", currentUser.uid);
     const targetUid = activeChatUserId;
     const targetRole = activeChatUserRole;
+    const myRole = myUserData.role;
 
-    // 学習者が送信：自分の未返信フラグON＋ポイント加算
-    if (myUserData.role === 'learner') {
+    // 学習者が送信
+    if (myRole === 'learner') {
         await updateDoc(myRef, { isUnreplied: true, totalPoints: increment(1) });
         return;
     }
-    // 管理者・講師 → 学習者：学習者の未返信フラグOFF＋自分にポイント加算
+    // 管理者・講師 → 学習者
     if (targetRole === 'learner') {
         await updateDoc(myRef, { totalPoints: increment(1) });
         await updateDoc(doc(db, "users", targetUid), { isUnreplied: false });
         return;
     }
-    // 非学習者同士（管理者↔管理者 / 管理者↔講師）：
-    //   相手の unreadFrom に自分を追加し、自分の unreadFrom から相手を外す
-    const targetRef = doc(db, "users", targetUid);
-    const targetSnap = await getDoc(targetRef);
-    const targetUnread = (targetSnap.exists() && targetSnap.data().unreadFrom) || [];
-    if (!targetUnread.includes(currentUser.uid)) {
-        targetUnread.push(currentUser.uid);
-        await updateDoc(targetRef, { unreadFrom: targetUnread });
+    // 講師 → 管理者チーム（共有スレッド＝講師ドキュメント）
+    if (myRole === 'mentor' && targetRole === 'admin') {
+        // 講師が送信 → 全管理者にバッジ(isUnreplied=true)、講師側のバッジ解除(adminUnreplied=false)
+        await updateDoc(myRef, { isUnreplied: true, adminUnreplied: false });
+        return;
     }
-    const myUnread = (myUserData.unreadFrom || []).filter(id => id !== targetUid);
-    await updateDoc(myRef, { unreadFrom: myUnread });
+    // 管理者 → 講師（共有スレッド＝講師ドキュメント）
+    if (myRole === 'admin' && targetRole === 'mentor') {
+        // 管理者が送信 → 講師にバッジ(adminUnreplied=true)、管理者チームのバッジ解除(isUnreplied=false)
+        await updateDoc(doc(db, "users", targetUid), { isUnreplied: false, adminUnreplied: true });
+        return;
+    }
+    // 管理者 ↔ 管理者（1対1：unreadFrom）
+    if (myRole === 'admin' && targetRole === 'admin') {
+        const targetRef = doc(db, "users", targetUid);
+        const targetSnap = await getDoc(targetRef);
+        const targetUnread = (targetSnap.exists() && targetSnap.data().unreadFrom) || [];
+        if (!targetUnread.includes(currentUser.uid)) {
+            targetUnread.push(currentUser.uid);
+            await updateDoc(targetRef, { unreadFrom: targetUnread });
+        }
+        const myUnread = (myUserData.unreadFrom || []).filter(id => id !== targetUid);
+        await updateDoc(myRef, { unreadFrom: myUnread });
+        return;
+    }
 }
 
         document.getElementById('btn-send').addEventListener('click', async () => {
@@ -2036,10 +2065,20 @@ function renderMessageContent(raw) {
             if (window.innerWidth <= 680) {
                 document.getElementById('chat-area').classList.add('mobile-active');
             }
-            // ★ 2者専用ルームを使用（管理者↔管理者・管理者↔講師の混線を解消）
+            // ★ 共有スレッド / 1対1ルームを使用
             activeRoomId = getRoomId(tid, trole);
-            // ★ 管理者↔管理者・管理者↔講師は、チャットを開いた時点で自分の未返信バッジを消す
-            if (trole !== 'learner') {
+            // ★ チャットを開いた時点で自分側の未返信バッジを消す（学習者は対象外）
+            if (myUserData.role === 'mentor' && trole === 'admin') {
+                // 講師が管理者チームのスレッドを開いた → 講師側バッジ解除
+                if (myUserData.adminUnreplied === true) {
+                    myUserData.adminUnreplied = false;
+                    await updateDoc(doc(db, 'users', currentUser.uid), { adminUnreplied: false });
+                }
+            } else if (myUserData.role === 'admin' && trole === 'mentor') {
+                // 管理者が講師スレッドを開いた → 全管理者共有のバッジ解除
+                await updateDoc(doc(db, 'users', tid), { isUnreplied: false });
+            } else if (myUserData.role === 'admin' && trole === 'admin') {
+                // 管理者↔管理者（1対1）→ 自分の unreadFrom から相手を除去
                 const myUnread = myUserData.unreadFrom || [];
                 if (myUnread.includes(tid)) {
                     const newUnread = myUnread.filter(id => id !== tid);
