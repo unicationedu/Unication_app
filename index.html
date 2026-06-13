@@ -1983,41 +1983,6 @@ async function updateUnrepliedStatus() {
             await dispatchNotifications(text, false);
         });
 
-        document.getElementById('msg-input').addEventListener('keydown', async (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                const text = document.getElementById('msg-input').value.replace(/\n+$/, ''); if (!text.trim()) return;
-                // ★ 学習者の月間メッセージ上限チェック
-                if (myUserData.role === 'learner') {
-                    const limit = myUserData.monthlyMsgLimit || 0;
-                    if (limit > 0) {
-                        const remaining = myUserData.monthlyMsgRemaining ?? limit;
-                        if (remaining <= 0) {
-                            const langNow = localStorage.getItem('wiw_lang') || 'ja';
-                            alert(langNow === 'en'
-                                ? 'You have reached your monthly message limit. Please contact an administrator.'
-                                : '今月のメッセージ送信上限に達しました。管理者にお問い合わせください。');
-                            return;
-                        }
-                    }
-                }
-                document.getElementById('msg-input').value = '';
-                await addDoc(collection(db, "chats", activeRoomId, "messages"), { senderId: currentUser.uid, senderName: myUserData.name, content: text, createdAt: serverTimestamp() });
-                // ★ 学習者の残回数をデクリメント
-                if (myUserData.role === 'learner') {
-                    const limit = myUserData.monthlyMsgLimit || 0;
-                    if (limit > 0) {
-                        const remaining = myUserData.monthlyMsgRemaining ?? limit;
-                        const newRemaining = Math.max(0, remaining - 1);
-                        await updateDoc(doc(db, "users", currentUser.uid), { monthlyMsgRemaining: newRemaining });
-                        myUserData.monthlyMsgRemaining = newRemaining;
-                    }
-                }
-                await updateUnrepliedStatus();
-                await dispatchNotifications(text, false);
-            }
-        });
-
         document.getElementById('btn-photo').addEventListener('click', () => document.getElementById('img-upload').click());
         document.getElementById('img-upload').addEventListener('change', async (e) => {
             const file = e.target.files[0]; if (!file) return;
