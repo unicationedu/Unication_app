@@ -2525,18 +2525,26 @@ function renderMessageContent(raw) {
             }
         };
 
+        function enableTermsCheckbox() {
+            const cb  = document.getElementById('reg-terms');
+            const lbl = document.getElementById('label-terms-check');
+            if (!cb) return;
+            cb.disabled = false;
+            cb.style.cursor = 'pointer';
+            if (lbl) {
+                lbl.style.opacity = '1';
+                lbl.style.cursor = 'pointer';
+                lbl.title = '';
+            }
+        }
         function openTerms() {
             const url = (typeof linkSettings !== 'undefined' && linkSettings.termsUrl)
                 ? linkSettings.termsUrl
                 : 'https://withinworldad-png.github.io/HP/terms.html';
+            // 確認したことを記録（同一タブで移動して戻っても有効化できるように）
+            try { sessionStorage.setItem('wiw_terms_viewed', '1'); } catch(e) {}
             window.open(url, '_blank');
-            const cb  = document.getElementById('reg-terms');
-            const lbl = document.getElementById('label-terms-check');
-            cb.disabled = false;
-            cb.style.cursor = 'pointer';
-            lbl.style.opacity = '1';
-            lbl.style.cursor = 'pointer';
-            lbl.title = '';
+            enableTermsCheckbox();
         }
 
         function applyLang(lang) {
@@ -2571,6 +2579,18 @@ function renderMessageContent(raw) {
         const langSel = document.getElementById('lang-select');
         if (langSel) langSel.value = savedLang;
         applyLang(savedLang);
+
+        // ★ 規約確認済みなら（同一タブ移動から戻った場合も）チェックを有効化
+        function restoreTermsViewedState() {
+            try {
+                if (sessionStorage.getItem('wiw_terms_viewed') === '1') {
+                    enableTermsCheckbox();
+                }
+            } catch(e) {}
+        }
+        // ページ表示時・別ページから戻った時（bfcache復帰含む）に実行
+        window.addEventListener('pageshow', restoreTermsViewedState);
+        restoreTermsViewedState();
     </script>
 </body>
 </html>
