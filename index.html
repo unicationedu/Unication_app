@@ -1255,6 +1255,14 @@
                 const snap = await getDoc(doc(db, 'system', 'linkSettings'));
                 if (snap.exists()) {
                     linkSettings = snap.data();
+                    // ★ 規約URLを端末に保存（ログイン前の規約ボタン用）
+                    try {
+                        if (linkSettings.termsUrl) {
+                            localStorage.setItem('wiw_terms_url', linkSettings.termsUrl);
+                        } else {
+                            localStorage.removeItem('wiw_terms_url');
+                        }
+                    } catch(e) {}
                     const fields = {
                         'link-contact': linkSettings.contact,
                         'link-cert': linkSettings.cert,
@@ -1318,6 +1326,15 @@
         window.openLinkEdit = async () => {
             await loadLinkSettings();
             switchView('view-link-edit');
+        };
+
+// ★ 規約URLを開く（未認証でもFirestoreを読まずに動作）
+        window.openTermsUrl = () => {
+            let url = '';
+            try { url = localStorage.getItem('wiw_terms_url') || ''; } catch(e) {}
+            if (!url) url = (linkSettings && linkSettings.termsUrl) ? linkSettings.termsUrl : '';
+            if (!url) url = 'https://withinworldad-png.github.io/HP/terms.html';
+            window.open(url, '_blank');
         };
 
         const defaultGuideUrls = {
@@ -2562,16 +2579,16 @@ function renderMessageContent(raw) {
                 lbl.title = '';
             }
         }
-        function openTerms() {
-            const url = (typeof linkSettings !== 'undefined' && linkSettings.termsUrl)
-                ? linkSettings.termsUrl
-                : 'https://withinworldad-png.github.io/HP/terms.html';
-            // 確認したことを記録（同一タブで移動して戻っても有効化できるように）
-            try { sessionStorage.setItem('wiw_terms_viewed', '1'); } catch(e) {}
-            window.open(url, '_blank');
+function openTerms() {
+            if (typeof window.openTermsUrl === 'function') {
+                window.openTermsUrl();
+            } else {
+                let url = '';
+                try { url = localStorage.getItem('wiw_terms_url') || ''; } catch(e) {}
+                window.open(url || 'https://withinworldad-png.github.io/HP/terms.html', '_blank');
+            }
             enableTermsCheckbox();
         }
-
         function applyLang(lang) {
             const m = labelsMap[lang] || labelsMap['ja'];
             const isReg = document.getElementById('wrap-reg-name').style.display === 'block';
