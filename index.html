@@ -1051,6 +1051,14 @@
             // ページ読み込み直後にも一度チェック（再読み込み対策）
             await refreshBannerIfRegOpen();
 
+            // ★ ログイン前でも利用規約URLだけは読み込んでおく（規約ボタン用）
+            try {
+                const linkSnap = await getDoc(doc(db, 'system', 'linkSettings'));
+                if (linkSnap.exists() && linkSnap.data().termsUrl) {
+                    linkSettings.termsUrl = linkSnap.data().termsUrl;
+                }
+            } catch(e) { console.warn('規約URL先読みエラー:', e); }
+
             // 以降は表示変化を監視
             const observer = new MutationObserver(async (mutations) => {
                 for (const m of mutations) {
@@ -1898,7 +1906,13 @@ function getRoomId(otherUid, otherRole) {
         let cachedNoticeTime = null;
 
         function evaluateNoticeBadge() {
-            if (!cachedNoticeTime) return;
+            if (!cachedNoticeTime) {
+                // お知らせが未設定なら赤マークは付けない
+                hasNoticeBadge = false;
+                updateMenuButtonBadge();
+                if (document.getElementById('view-admin-portal').style.display === 'block') setupMenuGrid();
+                return;
+            }
             const lastSeen = myUserData ? myUserData.noticeLastSeen : null;
             hasNoticeBadge = !lastSeen || lastSeen < cachedNoticeTime;
             updateMenuButtonBadge();
@@ -2343,7 +2357,7 @@ function renderMessageContent(raw) {
             alert("Saved!");
         };
         window.deleteUserData = async (uid) => {
-            if (!confirm("削除？")) return;
+            if (!confirm("このユーザーと、そのチャット履歴を削除します。元に戻せません。よろしいですか？")) return;
             // nicknamesコレクションから該当uidのエントリを削除
             try {
                 const userSnap = await getDoc(doc(db, "users", uid));
@@ -2352,7 +2366,19 @@ function renderMessageContent(raw) {
                     if (userName) await deleteDoc(doc(db, "nicknames", userName));
                 }
             } catch(e) { console.warn("nickname削除エラー:", e); }
+
+            // ★ そのユーザーのチャット部屋（chats/{uid}）内のメッセージを全削除
+            try {
+                const msgsSnap = await getDocs(collection(db, "chats", uid, "messages"));
+                for (const m of msgsSnap.docs) {
+                    await deleteDoc(doc(db, "chats", uid, "messages", m.id));
+                }
+                // 部屋本体のドキュメント（存在すれば）も削除
+                await deleteDoc(doc(db, "chats", uid));
+            } catch(e) { console.warn("チャット部屋削除エラー:", e); }
+
             await deleteDoc(doc(db, "users", uid));
+            alert("削除しました");
         };
 
         document.getElementById('btn-login').addEventListener('click', () => signInWithEmailAndPassword(auth, document.getElementById('login-email').value, document.getElementById('login-pw').value).catch(e => alert(e.message)));
@@ -2372,10 +2398,9 @@ function renderMessageContent(raw) {
 
             if(!n || !e || !p) return alert(currentLang === 'en' ? "Please fill in all required fields." : "必須項目を入力してください");
 
-            // ★ 利用規約チェック
+            // ★ 利用規約チェック（同意チェックのみ必須）
             const termsCb = document.getElementById('reg-terms');
             const m = labelsMap[currentLang] || labelsMap['ja'];
-            if (termsCb.disabled) return alert(m['terms-not-viewed']);
             if (!termsCb.checked) return alert(m['terms-not-checked']);
 
             // ★ ニックネーム重複チェック（nicknames専用コレクションで確認）
@@ -2464,11 +2489,11 @@ function renderMessageContent(raw) {
                 const cb = document.getElementById('reg-terms');
                 const lbl = document.getElementById('label-terms-check');
                 cb.checked = false;
-                cb.disabled = true;
-                cb.style.cursor = 'not-allowed';
-                lbl.style.opacity = '0.5';
-                lbl.style.cursor = 'not-allowed';
-                lbl.title = '先に利用規約を確認してください';
+                cb.disabled = false;
+                cb.style.cursor = 'pointer';
+                lbl.style.opacity = '1';
+                lbl.style.cursor = 'pointer';
+                lbl.title = '';
                 // ★ バナー更新はモジュール側のMutationObserverが検知して処理する
             } else {
                 // ★ ログイン画面に戻したらバナーを隠す
