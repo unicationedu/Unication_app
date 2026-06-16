@@ -513,11 +513,13 @@
 
                 <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
                     <button id="btn-notice-preview" onclick="previewNoticeTargets()" style="background:#1976d2; padding:8px 16px; font-size:13px;">対象者を確認</button>
+                    <button id="btn-notice-listall" onclick="listAllNotices()" style="background:#5c7ba6; padding:8px 16px; font-size:13px;">📋 全員のお知らせを一覧表示</button>
                     <button id="btn-notice-save" onclick="saveNotice()" style="background:var(--point-color); padding:8px 16px; font-size:13px; display:none;">✉️ 送信・更新する</button>
                 </div>
                 <div id="nt-preview" style="display:none; margin-top:10px; background:#fff3cd; border:1px solid #ffc107; border-radius:6px; padding:10px; font-size:13px;">
                     <strong>送信対象：</strong><span id="nt-target-count">0</span>名
                 </div>
+                <div id="nt-listall-box" style="display:none; margin-top:10px; max-height:300px; overflow-y:auto; background:#fff; border:1px solid #e0e0e0; border-radius:6px; padding:12px;"></div>
             </div>
 
             <!-- 自分宛のお知らせ表示（全ロール共通） -->
@@ -570,6 +572,16 @@
 
     <!-- PW変更ビュー -->
     <div id="view-pw-change" class="full-view"><div class="view-card" style="max-width: 400px;"><button class="back-btn" onclick="switchView('view-admin-portal')">← 戻る</button><h2 class="view-title">PW変更</h2><input type="password" id="new-pw" placeholder="新しいPW" style="width:100%; margin-bottom:20px;"><button id="btn-pw-update">更新</button></div></div>
+
+    <!-- 通知設定ビュー -->
+    <div id="view-notif-settings" class="full-view">
+        <div class="view-card" style="max-width: 700px;">
+            <button class="back-btn" onclick="switchView('view-admin-portal')">← 戻る</button>
+            <h2 class="view-title">🔔 通知設定</h2>
+            <p style="font-size:13px; color:#666; margin-bottom:20px;">受け取る通知の種類をオン／オフできます。オフにすると、その種類の通知はこの端末に表示されなくなります。</p>
+            <div id="notif-settings-list"></div>
+        </div>
+    </div>
 
     <!-- ★ リンク先修正ビュー（管理者のみ） -->
     <div id="view-link-edit" class="full-view">
@@ -1479,9 +1491,16 @@ function getRoomId(otherUid, otherRole) {
             setTimeout(() => { if(el.parentNode) el.remove(); }, 5000);
         }
 
-        async function sendNotification(targetUid, title, body) {
-            try { await addDoc(collection(db, "notifications"), { targetUid, title, body, createdAt: serverTimestamp(), read: false }); }
+        async function sendNotification(targetUid, title, body, category = 'message') {
+            try { await addDoc(collection(db, "notifications"), { targetUid, title, body, category, createdAt: serverTimestamp(), read: false }); }
             catch(e) { console.warn("通知書き込み失敗:", e); }
+        }
+
+        // ★ 自分の通知設定を取得（未設定はすべてオン扱い）
+        function getMyNotifSetting(category) {
+            const s = (myUserData && myUserData.notifSettings) ? myUserData.notifSettings : {};
+            // 明示的に false のときだけオフ。未設定・true はオン
+            return s[category] !== false;
         }
 
         function listenForNotifications(uid) {
@@ -1491,6 +1510,12 @@ function getRoomId(otherUid, otherRole) {
                     for (const change of snap.docChanges()) {
                         if (change.type === 'added') {
                             const n = change.doc.data();
+                            const category = n.category || 'message';
+                            // ★ 自分の設定がオフの種類は通知を表示しない（既読にして消す）
+                            if (!getMyNotifSetting(category)) {
+                                await updateDoc(doc(db, "notifications", change.doc.id), { read: true });
+                                continue;
+                            }
                             if (Notification.permission === 'granted') {
                                 new Notification(n.title, { body: n.body, icon: '/icon-192.png', tag: change.doc.id });
                             } else { showInAppNotification(n.title, n.body); }
@@ -1624,7 +1649,10 @@ function getRoomId(otherUid, otherRole) {
                 html += `<div class="menu-item" onclick="window.open('${eventUrl}','_blank')"><span class="menu-item-icon">🎉</span><strong>${eventLabel}</strong></div>`;
             }
 
+            const notifLabel = (currentLang === 'en') ? '🔔 Notification settings' : '🔔 通知設定';
+            html += `<div class="menu-item" onclick="openNotifSettings()"><span class="menu-item-icon">🔔</span><strong>${notifLabel}</strong></div>`;
             html += `<div class="menu-item" onclick="switchView('view-pw-change')"><span class="menu-item-icon">🔑</span><strong>${t.menu_pw}</strong></div>`;
+            grid.innerHTML = html;
             grid.innerHTML = html;
         }
 
@@ -1782,6 +1810,63 @@ function getRoomId(otherUid, otherRole) {
         let noticeLastSeen = null;
         let noticeTargets = [];
 
+// ★ 通知設定画面を開く
+        window.openNotifSettings = () => {
+            const s = (myUserData && myUserData.notifSettings) ? myUserData.notifSettings : {};
+            const isOn = (cat) => s[cat] !== false;  // 未設定はオン
+            const lang = localStorage.getItem('wiw_lang') || 'ja';
+
+            // 表示する項目（approval は管理者のみ）
+            const items = [
+                { key: 'message', ja: 'メッセージ受信', jaSub: 'チャット・一斉送信・定期配信のメッセージ', en: 'Messages', enSub: 'Chat, broadcast, and scheduled messages' },
+                { key: 'notice',  ja: '管理者からのお知らせ', jaSub: 'お知らせが更新されたとき', en: 'Notices from admin', enSub: 'When a notice is updated' },
+            ];
+            if (myUserData.role === 'admin') {
+                items.push({ key: 'approval', ja: 'アカウント承認依頼', jaSub: '新しい講師の承認待ちが発生したとき', en: 'Account approval requests', enSub: 'When a new instructor is awaiting approval' });
+            }
+
+            let html = '';
+            items.forEach((it) => {
+                const on = isOn(it.key);
+                const title = lang === 'en' ? it.en : it.ja;
+                const sub = lang === 'en' ? it.enSub : it.jaSub;
+                html += `
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 4px; border-bottom:1px solid #eee;">
+                    <div style="flex:1; padding-right:12px;">
+                        <div style="font-weight:bold; color:#23303f; font-size:15px;">${title}</div>
+                        <div style="font-size:12px; color:#888; margin-top:2px;">${sub}</div>
+                    </div>
+                    <button type="button" id="notif-toggle-${it.key}" onclick="toggleNotifSetting('${it.key}')"
+                        style="flex-shrink:0; width:52px; height:30px; border:none; border-radius:15px; cursor:pointer; position:relative; transition:background 0.2s; background:${on ? '#2563eb' : '#cbd5e1'};">
+                        <span style="position:absolute; top:3px; left:${on ? '25px' : '3px'}; width:24px; height:24px; background:#fff; border-radius:50%; transition:left 0.2s; box-shadow:0 1px 3px rgba(0,0,0,0.3);"></span>
+                    </button>
+                </div>`;
+            });
+            document.getElementById('notif-settings-list').innerHTML = html;
+            switchView('view-notif-settings');
+        };
+
+        // ★ スイッチを切り替えて保存
+        window.toggleNotifSetting = async (category) => {
+            const cur = (myUserData && myUserData.notifSettings) ? myUserData.notifSettings : {};
+            const newVal = cur[category] === false ? true : false;  // 現在オフ→オン、オン→オフ
+            const updated = { ...cur, [category]: newVal };
+            // 画面を即時更新（先に見た目を変える）
+            myUserData.notifSettings = updated;
+            const btn = document.getElementById(`notif-toggle-${category}`);
+            if (btn) {
+                btn.style.background = newVal ? '#2563eb' : '#cbd5e1';
+                const knob = btn.querySelector('span');
+                if (knob) knob.style.left = newVal ? '25px' : '3px';
+            }
+            try {
+                await updateDoc(doc(db, 'users', currentUser.uid), { notifSettings: updated });
+            } catch(e) {
+                console.error('通知設定の保存エラー:', e);
+                alert('設定の保存に失敗しました。通信環境を確認してください。');
+            }
+        };
+
         window.openNotice = async () => {
             document.querySelectorAll('.full-view').forEach(v => v.style.display = 'none');
             document.getElementById('view-notice').style.display = 'block';
@@ -1826,6 +1911,45 @@ function getRoomId(otherUid, otherRole) {
             } catch(e) { console.warn('お知らせ取得エラー:', e); }
         };
 
+// ★ 全ユーザーの現在のお知らせを内容ごとにまとめて一覧表示
+        window.listAllNotices = async () => {
+            const btn = document.getElementById('btn-notice-listall');
+            const box = document.getElementById('nt-listall-box');
+            if (btn) { btn.innerText = '読み込み中...'; btn.disabled = true; }
+            if (box) { box.style.display = 'block'; box.innerHTML = '<span style="color:#aaa;">読み込み中...</span>'; }
+            try {
+                const usersSnap = await getDocs(collection(db, 'users'));
+                const contentMap = {};   // 内容 => [名前,...]
+                for (const ud of usersSnap.docs) {
+                    const u = ud.data();
+                    if (u.status !== 'active') continue;
+                    let content = '（未設定）';
+                    try {
+                        const ns = await getDoc(doc(db, 'users', ud.id, 'notice', 'current'));
+                        if (ns.exists() && ns.data().content) content = ns.data().content;
+                    } catch(e) {}
+                    if (!contentMap[content]) contentMap[content] = [];
+                    contentMap[content].push(u.name || '(名前なし)');
+                }
+                let html = '';
+                const entries = Object.entries(contentMap);
+                // 「未設定」を最後に回す
+                entries.sort((a, b) => (a[0] === '（未設定）' ? 1 : 0) - (b[0] === '（未設定）' ? 1 : 0));
+                for (const [content, names] of entries) {
+                    const isUnset = content === '（未設定）';
+                    html += `<div style="margin-bottom:10px; padding:10px; background:${isUnset ? '#f5f5f5' : '#fffde7'}; border-radius:6px; border-left:3px solid ${isUnset ? '#ccc' : '#f9a825'};">`;
+                    html += `<div style="font-size:11px; color:#888; margin-bottom:4px;">対象 ${names.length}名：${names.join('、')}</div>`;
+                    html += `<div style="font-size:13px; color:#333; white-space:pre-wrap;">${isUnset ? '<span style="color:#aaa;">お知らせ未設定</span>' : content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>`;
+                    html += `</div>`;
+                }
+                if (box) box.innerHTML = html || '<span style="color:#aaa;">対象者なし</span>';
+            } catch(e) {
+                console.error('listAllNotices error:', e);
+                if (box) box.innerHTML = '<span style="color:#c00;">読み込みに失敗しました</span>';
+            }
+            if (btn) { btn.innerText = '📋 全員のお知らせを一覧表示'; btn.disabled = false; }
+        };
+
         window.previewNoticeTargets = async () => {
             const btn = document.getElementById('btn-notice-preview');
             btn.innerText = '確認中...'; btn.disabled = true;
@@ -1855,7 +1979,7 @@ function getRoomId(otherUid, otherRole) {
 
                 let html = '';
                 for (const [content, names] of Object.entries(contentMap)) {
-                    const preview = content.length > 60 ? content.slice(0, 60) + '…' : content;
+                    const preview = content;
                     html += `<div style="margin-bottom:8px; padding:8px; background:#fffde7; border-radius:4px; border-left:3px solid #f9a825;">`;
                     html += `<div style="font-size:11px; color:#888; margin-bottom:3px;">対象者：${names.slice(0,5).join('、')}${names.length > 5 ? ` 他${names.length-5}名` : ''}</div>`;
                     html += `<div style="font-size:12px; color:#333; white-space:pre-wrap;">${preview === '（未設定）' ? '<span style="color:#aaa;">お知らせ未設定</span>' : preview}</div>`;
@@ -1911,9 +2035,28 @@ function getRoomId(otherUid, otherRole) {
                     });
                     await sendNotification(target.uid,
                         '📣 管理者からのお知らせが届きました',
-                        content_text.slice(0, 40) + (content_text.length > 40 ? '…' : ''));
+                        content_text.slice(0, 40) + (content_text.length > 40 ? '…' : ''),
+                        'notice');
                     await updateDoc(doc(db, 'users', target.uid), { noticeLastSeen: null });
                 }
+
+                // ★ 送信した管理者本人にも反映（確認用）。本人にはプッシュ通知やバッジは付けない
+                await setDoc(doc(db, 'users', currentUser.uid, 'notice', 'current'), {
+                    content: content_text,
+                    updatedAt: serverTimestamp(),
+                    sentBy: currentUser.uid,
+                });
+                const seenIso = new Date(Date.now() + 10000).toISOString();
+                await updateDoc(doc(db, 'users', currentUser.uid), { noticeLastSeen: seenIso });
+                if (myUserData) myUserData.noticeLastSeen = seenIso;
+
+                // ★ 本人の「現在のお知らせ」表示を即時更新
+                const dispEl = document.getElementById('notice-display');
+                if (dispEl) dispEl.innerText = content_text;
+                const nowD = new Date();
+                const updEl = document.getElementById('notice-updated-at');
+                if (updEl) updEl.innerText = `更新日時: ${nowD.getFullYear()}/${nowD.getMonth()+1}/${nowD.getDate()} ${nowD.getHours()}:${String(nowD.getMinutes()).padStart(2,'0')}`;
+
                 alert(`${noticeTargets.length}名へのお知らせ送信が完了しました`);
             } catch(e) {
                 console.error('saveNotice error:', e);
@@ -2492,6 +2635,19 @@ function renderMessageContent(raw) {
                 await setDoc(doc(db, "nicknames", trimmedName), { uid: uc.user.uid, createdAt: serverTimestamp() });
                 // ★ 登録成功後にカウントアップ（上限到達時は自動で一時停止）
                 await incrementRegistrationCount(role);
+
+                // ★ 講師（承認待ち）の場合、全管理者に承認依頼の通知を送る
+                if (role === 'mentor' && status === 'pending') {
+                    try {
+                        const adminSnap = await getDocs(query(collection(db, "users"), where("role", "==", "admin")));
+                        for (const ad of adminSnap.docs) {
+                            await sendNotification(ad.id,
+                                '🆕 新しい承認依頼',
+                                `${trimmedName} さんが講師登録の承認を待っています`,
+                                'approval');
+                        }
+                    } catch(notifErr) { console.warn('承認依頼通知の送信エラー:', notifErr); }
+                }
             } catch (err) {
                 alert(err.message);
                 const tt = document.getElementById('toggle-text');
